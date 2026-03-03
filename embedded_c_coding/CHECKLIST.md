@@ -78,6 +78,24 @@ typedef enum {
 } Status;               // 缺少 _t 后缀
 ```
 
+### 1.4 函数指针类型命名
+- [ ] 函数指针类型名使用 `对象名_动词_fn` 格式
+- [ ] 函数指针类型以 `_fn` 后缀结尾
+- [ ] 函数指针第一个参数为结构体自身指针
+
+**示例检查：**
+```c
+// ✅ 正确
+typedef motor_error_t (*motor_init_fn)(motor_t *motor, uint32_t config);
+typedef motor_error_t (*motor_start_fn)(motor_t *motor, uint16_t speed);
+typedef void (*motor_callback_fn)(motor_t *motor, uint8_t event);
+
+// ❌ 错误
+typedef motor_error_t (*MotorInit)(motor_t *motor);    // 大写字母，缺少 _fn 后缀
+typedef motor_error_t (*motor_init)(motor_t *motor);   // 缺少 _fn 后缀
+typedef motor_error_t (*motor_init_fn)(uint32_t config); // 缺少 self 指针参数
+```
+
 ### 1.4 宏与常量命名
 - [ ] 宏名使用全大写字母 + 下划线
 - [ ] 常量名使用全大写字母 + 下划线
@@ -145,59 +163,121 @@ int motor_init(motor_t *motor);
 
 ---
 
-## 三、硬件接口抽象封装检查
+## 三、面向对象函数指针封装检查
 
-### 3.1 结构体定义
-- [ ] 结构体包含硬件地址成员（如 `slv_addr`）
-- [ ] 结构体包含控制功能的函数指针成员
-- [ ] 结构体设计清晰、易于扩展
-- [ ] 私有成员与公共成员分离
+### 3.1 前向声明
+- [ ] 结构体定义前有前向声明
+- [ ] 前向声明格式正确：`typedef struct xxx_t xxx_t;`
 
 **示例检查：**
 ```c
 // ✅ 正确
-typedef struct {
-    uint8_t slv_addr;              // 硬件地址
-    
-    // 公共函数指针
-    void (*reset)(void);
-    void (*read_reg)(uint8_t reg, uint8_t *data);
-    
-    // 私有成员
-    bool is_initialized;
-} sensor_t;
+typedef struct motor_t motor_t;  // 前向声明
+
+typedef motor_error_t (*motor_init_fn)(motor_t *motor);  // 函数指针定义
+
+struct motor_t {                // 结构体定义
+    // ...
+};
 ```
 
-### 3.2 初始化函数
-- [ ] 函数名格式：`[对象名]_init`
-- [ ] 参数为结构体指针
-- [ ] 检查指针有效性
-- [ ] 绑定所有函数指针
-- [ ] 初始化默认配置
-- [ ] 设置初始化标志
+### 3.2 函数指针类型定义
+- [ ] 每个操作方法有独立的函数指针类型定义
+- [ ] 函数指针类型命名使用 `*_fn` 后缀
+- [ ] 函数指针第一个参数为结构体自身指针
+- [ ] 函数指针有完整的中文注释
 
 **示例检查：**
 ```c
 // ✅ 正确
-int sensor_init(sensor_t *sensor) {
-    if (sensor == NULL) {
-        return -1;
+/**
+ * @brief 初始化函数指针类型
+ */
+typedef motor_error_t (*motor_init_fn)(motor_t *motor, uint32_t config);
+
+/**
+ * @brief 启动函数指针类型
+ */
+typedef motor_error_t (*motor_start_fn)(motor_t *motor, uint16_t speed);
+```
+
+### 3.3 结构体自包含设计
+- [ ] 结构体包含硬件配置成员
+- [ ] 结构体包含运行状态成员
+- [ ] 结构体包含函数指针成员（操作方法）
+- [ ] 结构体包含回调函数指针（可选）
+- [ ] 函数指针成员有完整的中文注释
+
+**示例检查：**
+```c
+// ✅ 正确
+struct motor_t {
+    /* 硬件配置 */
+    TIM_HandleTypeDef *pwm_timer;      /**< PWM定时器指针 */
+
+    /* 运行状态 */
+    motor_state_t state;               /**< 电机运行状态 */
+    uint16_t duty_cycle;               /**< 当前占空比 */
+
+    /* 函数指针 - 操作方法 */
+    motor_init_fn      init;           /**< 初始化函数 */
+    motor_start_fn     start;          /**< 启动函数 */
+    motor_stop_fn      stop;           /**< 停止函数 */
+
+    /* 函数指针 - 回调函数 */
+    void (*on_error)(uint32_t code);   /**< 错误回调 */
+};
+```
+
+### 3.4 函数指针绑定
+- [ ] 有专门的初始化函数负责绑定函数指针
+- [ ] 初始化函数命名格式：`bsp_[对象名]_init`
+- [ ] 所有函数指针都被正确绑定
+- [ ] 绑定前检查指针有效性
+
+**示例检查：**
+```c
+// ✅ 正确
+motor_error_t bsp_motor_init(motor_t *motor, TIM_HandleTypeDef *timer) {
+    if (motor == NULL || timer == NULL) {
+        return MOTOR_ERROR_NULL_PTR;
     }
-    
-    sensor->slv_addr = SENSOR_I2C_ADDR;
-    sensor->reset = sensor_reset;
-    sensor->read_reg = sensor_read_reg;
-    sensor->is_initialized = true;
-    
-    return 0;
+
+    /* 绑定硬件配置 */
+    motor->pwm_timer = timer;
+
+    /* 绑定操作方法函数指针 */
+    motor->init  = motor_impl_init;
+    motor->start = motor_impl_start;
+    motor->stop  = motor_impl_stop;
+
+    return MOTOR_OK;
 }
 ```
 
-### 3.3 面向对象封装
-- [ ] 使用静态函数实现内部功能
-- [ ] 通过函数指针暴露公共接口
-- [ ] 接口设计清晰、一致
-- [ ] 支持多实例化
+### 3.5 实现函数规范
+- [ ] 实现函数使用 `static` 修饰
+- [ ] 实现函数命名格式：`对象名_impl_动词`
+- [ ] 实现函数第一个参数为结构体自身指针
+- [ ] 实现函数有完整的中文注释
+
+**示例检查：**
+```c
+// ✅ 正确
+/**
+ * @brief 电机启动实现函数（静态内部函数）
+ * @param motor 电机结构体指针
+ * @param speed 启动速度
+ * @return 错误码
+ */
+static motor_error_t motor_impl_start(motor_t *motor, uint16_t speed) {
+    if (motor == NULL) {
+        return MOTOR_ERROR_NULL_PTR;
+    }
+    // 实现逻辑...
+    return MOTOR_OK;
+}
+```
 
 ---
 
@@ -255,8 +335,11 @@ int sensor_init(sensor_t *sensor) {
 | 检查项 | 结果 | 备注 |
 |--------|------|------|
 | 命名规范 | ☐ 通过 / ☐ 不通过 | |
+| 函数指针类型命名 | ☐ 通过 / ☐ 不通过 | |
 | 注释规范 | ☐ 通过 / ☐ 不通过 | |
-| 硬件封装 | ☐ 通过 / ☐ 不通过 | |
+| 前向声明 | ☐ 通过 / ☐ 不通过 | |
+| 结构体自包含设计 | ☐ 通过 / ☐ 不通过 | |
+| 函数指针绑定 | ☐ 通过 / ☐ 不通过 | |
 | 代码质量 | ☐ 通过 / ☐ 不通过 | |
 | 嵌入式特定 | ☐ 通过 / ☐ 不通过 | |
 
@@ -276,13 +359,29 @@ int sensor_init(sensor_t *sensor) {
 **错误示例：** `typedef struct {...} Sensor;`
 **修正建议：** 改为 `typedef struct {...} sensor_t;`
 
-### 问题4：注释使用英文
+### 问题4：函数指针类型缺少 _fn 后缀
+**错误示例：** `typedef error_t (*motor_init)(motor_t *motor);`
+**修正建议：** 改为 `typedef error_t (*motor_init_fn)(motor_t *motor);`
+
+### 问题5：函数指针缺少 self 参数
+**错误示例：** `typedef error_t (*motor_start_fn)(uint16_t speed);`
+**修正建议：** 改为 `typedef error_t (*motor_start_fn)(motor_t *motor, uint16_t speed);`
+
+### 问题6：缺少前向声明
+**错误示例：** 直接定义函数指针类型，但结构体尚未声明
+**修正建议：** 在函数指针类型定义前添加 `typedef struct motor_t motor_t;`
+
+### 问题7：注释使用英文
 **错误示例：** `// Initialize motor`
 **修正建议：** 改为 `// 初始化电机`
 
-### 问题5：缺少函数指针绑定
-**错误示例：** 初始化函数中未绑定函数指针
-**修正建议：** 在初始化函数中添加 `sensor->reset = sensor_reset;` 等绑定语句
+### 问题8：初始化函数未绑定所有函数指针
+**错误示例：** 初始化函数中只绑定部分函数指针
+**修正建议：** 确保所有函数指针成员都被正确绑定
+
+### 问题9：实现函数未使用 static 修饰
+**错误示例：** `motor_error_t motor_impl_start(motor_t *motor, uint16_t speed)`
+**修正建议：** 改为 `static motor_error_t motor_impl_start(motor_t *motor, uint16_t speed)`
 
 ---
 
@@ -300,6 +399,11 @@ int sensor_init(sensor_t *sensor) {
 ^[a-z][a-z0-9]*_[a-z][a-z0-9_]*$
 ```
 
+### 检查函数指针类型定义（_fn后缀）
+```
+typedef\s+\w+\s+\(\*\s*\w+_fn\s*\)\s*\(
+```
+
 ### 检查类型定义（_t后缀）
 ```
 typedef.*\s+[a-z][a-z0-9_]*_t
@@ -308,4 +412,9 @@ typedef.*\s+[a-z][a-z0-9_]*_t
 ### 检查宏定义（全大写）
 ```
 #define\s+[A-Z][A-Z0-9_]*
+```
+
+### 检查前向声明
+```
+typedef\s+struct\s+\w+_t\s+\w+_t\s*;
 ```
