@@ -1,0 +1,19 @@
+{
+  "skill_name": "goal-writer",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "vague-refactor-goal",
+      "prompt": "帮我把 lingagents-v2 的 agent 目录整理一下，把没用的代码清掉，确保一切正常",
+      "expected_output": "一条可直接粘贴到 /goal 的完成条件：含可度量终态（如死代码检查通过、测试退出码 0）、验证方式、范围约束和轮数上限，并附简短设计说明",
+      "files": []
+    },
+    {
+      "id": 1,
+      "eval_name": "data-warehouse-backfill-goal",
+      "prompt": "我想让它自己盯数据仓库，缺哪天的数据就自动补上",
+      "expected_output": "一条 /goal 条件：把'缺口'翻译成可验证信号（如运行完整性检查脚本、列出缺失日期并补齐后重查通过），处理数据源不可达的 fallback，带轮数上限",
+      "files": []
+    }
+  ]
+}
